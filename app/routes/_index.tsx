@@ -13,6 +13,12 @@ import type {
   PodcastCategoryTrend,
   PodcastTrendSnapshot
 } from "../types/podcast";
+import {
+  MAX_DURATION_SELECT_OPTIONS,
+  maxDurationOptionToSeconds,
+  normalizeMaxDuration,
+  type MaxDurationOption
+} from "../utils/maxDuration";
 
 export const meta: MetaFunction = () => [
   {
@@ -20,20 +26,35 @@ export const meta: MetaFunction = () => [
   }
 ];
 
-export async function loader(_args: LoaderFunctionArgs) {
-  const snapshot = await getPodcastTrends();
-  return json(snapshot);
+export async function loader({ request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  const maxDurationSelection = normalizeMaxDuration(url.searchParams.get("maxDuration"));
+  const maxDurationSeconds = maxDurationOptionToSeconds(maxDurationSelection);
+  const snapshot = await getPodcastTrends({ maxDurationSeconds });
+
+  return json({ snapshot, maxDurationSelection });
 }
 
 export async function action({ request }: ActionFunctionArgs) {
   const formData = await request.formData();
-  if (formData.get("intent") === "refresh") {
-    await getPodcastTrends({ forceRefresh: true });
+  const intent = formData.get("intent");
+  const rawMaxDuration = formData.get("maxDuration");
+  const maxDurationSelection = normalizeMaxDuration(
+    typeof rawMaxDuration === "string" ? rawMaxDuration : null
+  );
+  const maxDurationSeconds = maxDurationOptionToSeconds(maxDurationSelection);
+
+  if (intent === "refresh") {
+    await getPodcastTrends({ forceRefresh: true, maxDurationSeconds });
   }
-  return redirect("/");
+
+  return redirect(`/?maxDuration=${maxDurationSelection}`);
 }
 
-type LoaderData = PodcastTrendSnapshot;
+interface LoaderData {
+  snapshot: PodcastTrendSnapshot;
+  maxDurationSelection: MaxDurationOption;
+}
 
 interface EpisodeTtsResult {
   audioUrl: string;
@@ -42,7 +63,7 @@ interface EpisodeTtsResult {
 }
 
 export default function IndexRoute() {
-  const data = useLoaderData<LoaderData>();
+  const { snapshot, maxDurationSelection } = useLoaderData<LoaderData>();
   const fetcher = useFetcher<{ success?: boolean; audioUrl?: string; script?: string; estimatedDurationSeconds?: number; episodeId?: string }>();
   const [pendingEpisodeId, setPendingEpisodeId] = useState<string | null>(null);
   const [ttsResults, setTtsResults] = useState<Record<string, EpisodeTtsResult>>({});
@@ -65,7 +86,7 @@ export default function IndexRoute() {
 
   const isGenerating = fetcher.state !== "idle";
 
-  const categories = data.categories;
+  const categories = snapshot.categories;
 
   return (
     <main className="app-shell">
@@ -76,8 +97,24 @@ export default function IndexRoute() {
           Podchaserの番組データを解析し、分野ごとの注目エピソードを抽出します。選択したエピソードはGemini 2.5 Flash Native Audio（Zephyrボイス）で日本語ナレーション化し、即座に試聴できます。
         </p>
         <div className="hero-meta">
-          <span>最終更新: {new Date(data.generatedAt).toLocaleString("ja-JP")}</span>
+          <Form method="get" action="/" replace className="duration-filter">
+            <label htmlFor="maxDuration" className="duration-filter__label">
+              最大再生時間
+            </label>
+            <select id="maxDuration" name="maxDuration" defaultValue={maxDurationSelection} className="duration-filter__select">
+              {MAX_DURATION_SELECT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="button-ghost">
+              長さを適用
+            </button>
+          </Form>
+          <span>最終更新: {new Date(snapshot.generatedAt).toLocaleString("ja-JP")}</span>
           <Form method="post" action="?index" replace>
+            <input type="hidden" name="maxDuration" value={maxDurationSelection} />
             <button className="button-ghost" name="intent" value="refresh">
               トレンドを再取得
             </button>
@@ -95,6 +132,7 @@ export default function IndexRoute() {
             setPendingEpisodeId={setPendingEpisodeId}
             isGenerating={isGenerating}
             pendingEpisodeId={pendingEpisodeId}
+            maxDurationSelection={maxDurationSelection}
           />
         ))}
       </section>
@@ -108,7 +146,8 @@ function CategoryCard({
   ttsResults,
   setPendingEpisodeId,
   isGenerating,
-  pendingEpisodeId
+  pendingEpisodeId,
+  maxDurationSelection
 }: {
   category: PodcastCategoryTrend;
   fetcher: ReturnType<typeof useFetcher>;
@@ -116,6 +155,7 @@ function CategoryCard({
   setPendingEpisodeId: (id: string | null) => void;
   isGenerating: boolean;
   pendingEpisodeId: string | null;
+  maxDurationSelection: MaxDurationOption;
 }) {
   return (
     <article className="category-card">
@@ -135,7 +175,7 @@ function CategoryCard({
             onGenerate={() => {
               setPendingEpisodeId(episode.id);
               fetcher.submit(
-                { episodeId: episode.id },
+                { episodeId: episode.id, maxDuration: maxDurationSelection },
                 { method: "post", action: "/api/tts" }
               );
             }}

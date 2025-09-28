@@ -23,12 +23,17 @@ const ACCESS_TOKEN_MUTATION = /* GraphQL */ `
 `;
 
 const DISCOVER_CATEGORY_QUERY = /* GraphQL */ `
-  query DiscoverCategory($searchTerm: String!, $episodeCount: Int!, $recentSince: DateTime) {
+  query DiscoverCategory(
+    $searchTerm: String!
+    $episodeCount: Int!
+    $recentSince: DateTime
+    $maxLengthRange: [RangeInput!]
+  ) {
     podcasts(
       searchTerm: $searchTerm
       filters: { language: "en" }
       sort: { sortBy: DATE_OF_FIRST_EPISODE, direction: DESCENDING }
-      first: 2
+      first: 10
       page: 0
     ) {
       data {
@@ -43,7 +48,7 @@ const DISCOVER_CATEGORY_QUERY = /* GraphQL */ `
         episodes(
           first: $episodeCount
           sort: { sortBy: AIR_DATE, direction: DESCENDING }
-          filters: { airDate: { from: $recentSince } }
+          filters: { airDate: { from: $recentSince }, length: $maxLengthRange }
         ) {
           data {
             id
@@ -102,10 +107,7 @@ const CATEGORY_CONFIG = [
 
 const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hour
 
-let cachedSnapshot: {
-  expiresAt: number;
-  snapshot: PodcastTrendSnapshot;
-} | null = null;
+const snapshotCache = new Map<number, { expiresAt: number; snapshot: PodcastTrendSnapshot }>();
 
 let cachedToken: {
   token: string;
@@ -284,17 +286,23 @@ function mapEpisode(
 
 async function buildCategoryTrend(
   category: (typeof CATEGORY_CONFIG)[number],
-  token: string
+  token: string,
+  maxDurationSeconds?: number
 ): Promise<PodcastCategoryTrend> {
   try {
     const twoDaysAgo = new Date(Date.now() - 1000 * 60 * 60 * 24 * 2);
+    const maxLengthRange =
+      typeof maxDurationSeconds === "number"
+        ? [{ max: maxDurationSeconds }]
+        : null;
 
     const data = await executePodchaserQuery<DiscoverCategoryResult>(
       DISCOVER_CATEGORY_QUERY,
       {
         searchTerm: category.searchTerm,
         episodeCount: 3,
-        recentSince: twoDaysAgo.toISOString()
+        recentSince: twoDaysAgo.toISOString().slice(0, 19).replace("T", " "),
+        maxLengthRange
       },
       token
     );
@@ -303,6 +311,14 @@ async function buildCategoryTrend(
     const podcastWithEpisodes = podcasts.find((item) => item.episodes?.data?.length) ?? podcasts[0];
 
     if (!podcastWithEpisodes?.episodes?.data?.length) {
+      console.warn(
+        "No Podchaser episodes found within constraints; falling back",
+        category.id,
+        {
+          podcastCount: podcasts.length,
+          maxDurationSeconds
+        }
+      );
       return fallbackCategoryTrend(category.id);
     }
 
@@ -335,7 +351,7 @@ const FALLBACK_SNAPSHOT: PodcastTrendSnapshot = {
         id: `${config.id}-ep-1`,
         title: "サンプルエピソード 1",
         description:
-          "Podchaser APIの認証情報が設定されていないため、サンプルデータを表示しています。環境変数にAPIキーを追加すると直近48時間のトレンドが取得されます。",
+          "Podchaser APIの認証情報が未設定、または直近48時間に該当カテゴリでエピソードが見つからなかったため、サンプルデータを表示しています。環境変数にAPIキーを追加し、条件を満たす番組があると最新トレンドが取得されます。",
         audioUrl: undefined,
         podcastTitle: `デモポッドキャスト ${configIndex + 1}`,
         podcastId: `${config.id}-podcast`,
@@ -365,30 +381,36 @@ function fallbackCategoryTrend(categoryId: string): PodcastCategoryTrend {
 }
 
 export async function getPodcastTrends(
-  { forceRefresh = false }: { forceRefresh?: boolean } = {}
+  {
+    forceRefresh = false,
+    maxDurationSeconds
+  }: { forceRefresh?: boolean; maxDurationSeconds?: number } = {}
 ): Promise<PodcastTrendSnapshot> {
   const now = Date.now();
+  const cacheKey = maxDurationSeconds ?? -1;
+  const cached = snapshotCache.get(cacheKey);
 
-  if (!forceRefresh && cachedSnapshot && cachedSnapshot.expiresAt > now) {
-    return cachedSnapshot.snapshot;
+  if (!forceRefresh && cached && cached.expiresAt > now) {
+    return cached.snapshot;
   }
 
   if (!process.env.PODCHASER_API_KEY || !process.env.PODCHASER_API_SECRET) {
     console.warn("Podchaser credentials missing; reverting to fallback trend snapshot.");
-    cachedSnapshot = {
-      expiresAt: now + CACHE_TTL_MS,
-      snapshot: {
-        ...FALLBACK_SNAPSHOT,
-        generatedAt: new Date().toISOString()
-      }
+    const snapshot: PodcastTrendSnapshot = {
+      ...FALLBACK_SNAPSHOT,
+      generatedAt: new Date().toISOString()
     };
-    return cachedSnapshot.snapshot;
+    snapshotCache.set(cacheKey, {
+      expiresAt: now + CACHE_TTL_MS,
+      snapshot
+    });
+    return snapshot;
   }
 
   try {
     const token = await getPodchaserAccessToken();
     const categories = await Promise.all(
-      CATEGORY_CONFIG.map((config) => buildCategoryTrend(config, token))
+      CATEGORY_CONFIG.map((config) => buildCategoryTrend(config, token, maxDurationSeconds))
     );
 
     const snapshot: PodcastTrendSnapshot = {
@@ -396,22 +418,23 @@ export async function getPodcastTrends(
       categories
     };
 
-    cachedSnapshot = {
+    snapshotCache.set(cacheKey, {
       expiresAt: now + CACHE_TTL_MS,
       snapshot
-    };
+    });
 
     return snapshot;
   } catch (error) {
     console.warn("Falling back to sample data due to Podchaser error", error);
-    cachedSnapshot = {
-      expiresAt: now + CACHE_TTL_MS,
-      snapshot: {
-        ...FALLBACK_SNAPSHOT,
-        generatedAt: new Date().toISOString()
-      }
+    const snapshot: PodcastTrendSnapshot = {
+      ...FALLBACK_SNAPSHOT,
+      generatedAt: new Date().toISOString()
     };
-    return cachedSnapshot.snapshot;
+    snapshotCache.set(cacheKey, {
+      expiresAt: now + CACHE_TTL_MS,
+      snapshot
+    });
+    return snapshot;
   }
 }
 
@@ -424,9 +447,10 @@ export function getCategoryMetadata() {
 }
 
 export async function findEpisodeById(
-  episodeId: string
+  episodeId: string,
+  options?: { maxDurationSeconds?: number }
 ): Promise<{ episode: PodcastEpisode; category: PodcastCategoryTrend } | null> {
-  const snapshot = await getPodcastTrends();
+  const snapshot = await getPodcastTrends(options);
 
   for (const category of snapshot.categories) {
     const episode = category.sampleEpisodes.find((item) => item.id === episodeId);
