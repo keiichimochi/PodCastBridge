@@ -70,7 +70,7 @@ PodCast Bridgeは、アメリカのポッドキャストトレンドを日本語
   - Podchaser APIクエリに再生時間制限を適用
 
 **主要関数**:
-- `normalizeMaxDuration()`: フィルター値の正規化
+- `normalizeMaxDuration(value, fallback)`: フィルター値の正規化（カスタマブルなデフォルト値）
 - `maxDurationOptionToSeconds()`: 時間オプションから秒数への変換
 
 ### 5. フロントエンド UI
@@ -141,7 +141,7 @@ interface DiscoverCategoryVariables {
   searchTerm: string;
   episodeCount: number;
   recentSince?: string;
-  maxLengthRange?: EpisodeLengthRangeInput[];
+  length?: EpisodeLengthRangeInput;
 }
 ```
 
@@ -176,7 +176,8 @@ PODCHASER_API_SECRET=your_podchaser_api_secret
 ### データ取得戦略
 - **検索対象**: 過去48時間の最新エピソード
 - **エピソード数**: カテゴリーあたり最大3件
-- **再生時間フィルタリング**: ユーザー指定の最大再生時間でフィルタリング
+- **再生時間フィルタリング**: ポッドキャストレベルでの効率的な長さ制限
+- **デフォルト体験**: 初回訪問時は5分以内エピソードを優先表示
 - **スコア算出**: 新しさ + 評価 + 人気度の総合指標
 - **キャッシュ戦略**: 再生時間設定ごとに独立したキャッシュ
 
@@ -250,10 +251,16 @@ PODCHASER_API_SECRET=your_podchaser_api_secret
 
 ---
 
-**最終更新**: 2025年09月28日 v2.1
+**最終更新**: 2025年09月28日 v2.2
 **開発状況**: 本格運用準備完了（APIキー設定のみ必要）
 
 ### v2.1 マイナーアップデート
 - **型安全性**: GraphQL API統合の完全型定義化
 - **コード品質**: ジェネリック関数での変数型チェック強化
 - **保守性向上**: より明確な型インターフェースの分離
+
+### v2.2 UX・API最適化
+- **デフォルト体験改善**: 初回訪問時のデフォルトを5分以内に変更
+- **GraphQLクエリ最適化**: 長さフィルターをpodcastレベルで適用
+- **フォールバック強化**: より柔軟なデフォルト値設定機能
+- **パフォーマンス向上**: より効率的なAPI呼び出し構造

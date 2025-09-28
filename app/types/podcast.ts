@@ -35,5 +35,5 @@ export interface DiscoverCategoryVariables {
   searchTerm: string;
   episodeCount: number;
   recentSince?: string;
-  maxLengthRange?: EpisodeLengthRangeInput[];
+  length?: EpisodeLengthRangeInput;
 }

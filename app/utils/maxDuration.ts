@@ -22,11 +22,14 @@ const OPTION_LOOKUP: Record<MaxDurationOption, DurationOptionConfig> = OPTION_CO
 
 export const MAX_DURATION_SELECT_OPTIONS = OPTION_CONFIGS;
 
-export function normalizeMaxDuration(value: unknown): MaxDurationOption {
+export function normalizeMaxDuration(
+  value: unknown,
+  fallback: MaxDurationOption = "unlimited"
+): MaxDurationOption {
   if (value === "5" || value === "10" || value === "unlimited") {
     return value;
   }
-  return "unlimited";
+  return fallback;
 }
 
 export function maxDurationOptionToSeconds(option: MaxDurationOption): number | undefined {

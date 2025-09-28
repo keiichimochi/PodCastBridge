@@ -15,13 +15,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const contentType = request.headers.get("content-type") ?? "";
   let episodeId: string | null = null;
-  let maxDurationSelection = normalizeMaxDuration(null);
+  let maxDurationSelection = normalizeMaxDuration(null, "5");
 
   if (contentType.includes("application/json")) {
     try {
       const payload = (await request.json()) as { episodeId?: string; maxDuration?: string };
       episodeId = payload.episodeId ?? null;
-      maxDurationSelection = normalizeMaxDuration(payload.maxDuration ?? null);
+      maxDurationSelection = normalizeMaxDuration(payload.maxDuration ?? null, "5");
     } catch (_error) {
       return json({ message: "Invalid JSON body" }, { status: 400 });
     }
@@ -33,7 +33,7 @@ export async function action({ request }: ActionFunctionArgs) {
     }
     const rawDuration = formData.get("maxDuration");
     if (typeof rawDuration === "string") {
-      maxDurationSelection = normalizeMaxDuration(rawDuration);
+      maxDurationSelection = normalizeMaxDuration(rawDuration, "5");
     }
   }
 

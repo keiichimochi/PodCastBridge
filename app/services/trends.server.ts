@@ -29,11 +29,11 @@ const DISCOVER_CATEGORY_QUERY = /* GraphQL */ `
     $searchTerm: String!
     $episodeCount: Int!
     $recentSince: DateTime
-    $maxLengthRange: [RangeInput!]
+    $length: EpisodeLengthRangeInput
   ) {
     podcasts(
       searchTerm: $searchTerm
-      filters: { language: "en" }
+      filters: { language: "en", length: $length }
       sort: { sortBy: DATE_OF_FIRST_EPISODE, direction: DESCENDING }
       first: 10
       page: 0
@@ -50,7 +50,7 @@ const DISCOVER_CATEGORY_QUERY = /* GraphQL */ `
         episodes(
           first: $episodeCount
           sort: { sortBy: AIR_DATE, direction: DESCENDING }
-          filters: { airDate: { from: $recentSince }, length: $maxLengthRange }
+          filters: { airDate: { from: $recentSince } }
         ) {
           data {
             id
@@ -296,12 +296,14 @@ async function buildCategoryTrend(
     const variables: DiscoverCategoryVariables = {
       searchTerm: category.searchTerm,
       episodeCount: 3,
-      recentSince: twoDaysAgo.toISOString()
+      recentSince: twoDaysAgo.toISOString().split(".")[0] + "Z"
     };
 
     if (typeof maxDurationSeconds === "number") {
-      const range: EpisodeLengthRangeInput = { max: Math.max(0, Math.floor(maxDurationSeconds)) };
-      variables.maxLengthRange = [range];
+      const range: EpisodeLengthRangeInput = {
+        max: Math.max(0, Math.floor(maxDurationSeconds))
+      };
+      variables.length = range;
     }
 
     const data = await executePodchaserQuery<DiscoverCategoryResult, DiscoverCategoryVariables>(

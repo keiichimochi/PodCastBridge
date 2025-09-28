@@ -28,7 +28,7 @@ export const meta: MetaFunction = () => [
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  const maxDurationSelection = normalizeMaxDuration(url.searchParams.get("maxDuration"));
+  const maxDurationSelection = normalizeMaxDuration(url.searchParams.get("maxDuration"), "5");
   const maxDurationSeconds = maxDurationOptionToSeconds(maxDurationSelection);
   const snapshot = await getPodcastTrends({ maxDurationSeconds });
 
@@ -40,7 +40,8 @@ export async function action({ request }: ActionFunctionArgs) {
   const intent = formData.get("intent");
   const rawMaxDuration = formData.get("maxDuration");
   const maxDurationSelection = normalizeMaxDuration(
-    typeof rawMaxDuration === "string" ? rawMaxDuration : null
+    typeof rawMaxDuration === "string" ? rawMaxDuration : null,
+    "5"
   );
   const maxDurationSeconds = maxDurationOptionToSeconds(maxDurationSelection);
 
