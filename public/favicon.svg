@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C3AED" />
+      <stop offset="1" stop-color="#22D3EE" />
+    </linearGradient>
+    <linearGradient id="wave" x1="18" y1="24" x2="46" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F9FAFB" stop-opacity="0.85" />
+      <stop offset="1" stop-color="#E0F2FE" stop-opacity="0.95" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)" />
+  <g filter="url(#shadow)">
+    <path d="M32 18c-4.418 0-8 3.33-8 7.44v9.12c0 4.11 3.582 7.44 8 7.44s8-3.33 8-7.44v-9.12C40 21.33 36.418 18 32 18zm4.8 16.56c0 2.71-2.151 4.91-4.8 4.91s-4.8-2.2-4.8-4.91v-9.12c0-2.71 2.151-4.91 4.8-4.91s4.8 2.2 4.8 4.91v9.12z" fill="#0F172A" fill-opacity="0.85" />
+    <path d="M44 32.5a2 2 0 0 0-4 0 8 8 0 1 1-16 0 2 2 0 0 0-4 0 12 12 0 0 0 10 11.86v3.64h-4a2 2 0 1 0 0 4h12a2 2 0 0 0 0-4h-4v-3.64A12 12 0 0 0 44 32.5z" fill="url(#wave)" />
+  </g>
+  <defs>
+    <filter id="shadow" x="6" y="10" width="52" height="52" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feOffset dy="2" />
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.2 0" />
+      <feBlend in2="SourceGraphic" mode="normal" />
+    </filter>
+  </defs>
+</svg>

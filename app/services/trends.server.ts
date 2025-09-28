@@ -33,7 +33,7 @@ const DISCOVER_CATEGORY_QUERY = /* GraphQL */ `
   ) {
     podcasts(
       searchTerm: $searchTerm
-      filters: { language: "en", length: $length }
+      filters: { language: "en" }
       sort: { sortBy: DATE_OF_FIRST_EPISODE, direction: DESCENDING }
       first: 10
       page: 0
@@ -50,7 +50,7 @@ const DISCOVER_CATEGORY_QUERY = /* GraphQL */ `
         episodes(
           first: $episodeCount
           sort: { sortBy: AIR_DATE, direction: DESCENDING }
-          filters: { airDate: { from: $recentSince } }
+          filters: { airDate: { from: $recentSince }, length: $length }
         ) {
           data {
             id
