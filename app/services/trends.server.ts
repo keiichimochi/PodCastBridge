@@ -1,76 +1,102 @@
-import { json } from "@remix-run/node";
-
 import type {
   PodcastCategoryTrend,
   PodcastEpisode,
   PodcastTrendSnapshot
-} from "~/types/podcast";
+} from "../types/podcast";
 
-const LISTEN_NOTES_BASE_URL = "https://listen-api.listennotes.com/api/v2";
+const PODCHASER_GRAPHQL_ENDPOINT = "https://api.podchaser.com/graphql";
 
-interface ListenNotesPodcast {
-  id: string;
-  title: string;
-  publisher: string;
-  image: string;
-  thumbnail: string;
-  total_episodes: number;
-  listen_score?: number;
-  listen_score_global_rank?: string;
-  listennotes_url: string;
-}
+const ACCESS_TOKEN_MUTATION = /* GraphQL */ `
+  mutation RequestAccessToken($client_id: String!, $client_secret: String!) {
+    requestAccessToken(
+      input: {
+        grant_type: CLIENT_CREDENTIALS
+        client_id: $client_id
+        client_secret: $client_secret
+      }
+    ) {
+      access_token
+      expires_in
+      token_type
+    }
+  }
+`;
 
-interface ListenNotesEpisode {
-  id: string;
-  title: string;
-  description: string;
-  audio: string | null;
-  image: string | null;
-  thumbnail: string | null;
-  explicit_content: boolean;
-  pub_date_ms: number;
-  listennotes_url: string;
-}
-
-interface ListenNotesPodcastResponse extends ListenNotesPodcast {
-  episodes: ListenNotesEpisode[];
-}
+const DISCOVER_CATEGORY_QUERY = /* GraphQL */ `
+  query DiscoverCategory($searchTerm: String!, $episodeCount: Int!, $recentSince: DateTime) {
+    podcasts(
+      searchTerm: $searchTerm
+      filters: { language: "en" }
+      sort: { sortBy: DATE_OF_FIRST_EPISODE, direction: DESCENDING }
+      first: 2
+      page: 0
+    ) {
+      data {
+        id
+        title
+        description
+        imageUrl
+        webUrl
+        url
+        ratingAverage
+        ratingCount
+        episodes(
+          first: $episodeCount
+          sort: { sortBy: AIR_DATE, direction: DESCENDING }
+          filters: { airDate: { from: $recentSince } }
+        ) {
+          data {
+            id
+            title
+            description
+            airDate
+            audioUrl
+            webUrl
+            url
+            imageUrl
+            explicit
+          }
+        }
+      }
+    }
+  }
+`;
 
 const CATEGORY_CONFIG = [
   {
     id: "technology",
     name: "テクノロジー",
     summary:
-      "シリコンバレーから最新のAI・スタートアップ動向までをカバーする注目エピソード。",
-    genreId: 127
+      "シリコンバレーの最新動向やAIトレンドを追うテック系人気番組から厳選。",
+    searchTerm: "technology"
   },
   {
     id: "news",
     name: "ニュース",
     summary:
-      "アメリカ国内外で話題の政治・経済トピックを深掘りする報道番組。",
-    genreId: 99
+      "米国内外で話題の政治・経済ニュースを深掘りするジャーナル番組。",
+    searchTerm: "us politics news"
   },
   {
     id: "business",
     name: "ビジネス",
     summary:
-      "企業戦略、リーダーシップ、マーケットトレンドを扱う人気番組の最新回。",
-    genreId: 93
+      "起業・マーケティング・戦略を扱うビジネスリーダー必聴の最新エピソード。",
+    searchTerm: "business leadership"
   },
   {
     id: "health_fitness",
     name: "ヘルス＆フィットネス",
     summary:
-      "ウェルビーイング、メンタルヘルス、フィットネスに関する信頼のエピソード。",
-    genreId: 88
+      "ウェルビーイングやメンタルヘルス、最新フィットネストレンドを学べる番組。",
+    searchTerm: "health fitness"
   },
   {
     id: "culture",
     name: "カルチャー",
     summary:
-      "ポップカルチャーから社会問題まで、多角的に米国を捉える特集回。",
-    genreId: 67
+      "ポップカルチャーから社会問題まで、アメリカ文化を多角的に捉える番組を紹介。",
+    searchTerm: "society culture"
   }
 ] as const;
 
@@ -81,116 +107,220 @@ let cachedSnapshot: {
   snapshot: PodcastTrendSnapshot;
 } | null = null;
 
-async function fetchJson<T>(endpoint: string, init?: RequestInit): Promise<T> {
-  const apiKey = process.env.LISTEN_NOTES_API_KEY;
-  if (!apiKey) {
-    throw new Error("LISTEN_NOTES_API_KEY is not configured");
+let cachedToken: {
+  token: string;
+  expiresAt: number;
+} | null = null;
+
+interface AccessTokenResult {
+  requestAccessToken?: {
+    access_token: string;
+    expires_in?: number;
+  };
+}
+
+interface PodchaserEpisode {
+  id: string;
+  title: string;
+  description?: string | null;
+  airDate?: string | null;
+  audioUrl?: string | null;
+  webUrl?: string | null;
+  url?: string | null;
+  imageUrl?: string | null;
+  explicit: boolean;
+}
+
+interface PodchaserPodcast {
+  id: string;
+  title: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  webUrl?: string | null;
+  url?: string | null;
+  ratingAverage?: number | null;
+  ratingCount?: number | null;
+  episodes?: {
+    data: PodchaserEpisode[];
+  } | null;
+}
+
+interface DiscoverCategoryResult {
+  podcasts?: {
+    data: PodchaserPodcast[];
+  } | null;
+}
+
+async function getPodchaserAccessToken(): Promise<string> {
+  if (cachedToken && cachedToken.expiresAt > Date.now()) {
+    return cachedToken.token;
   }
 
-  const url = `${LISTEN_NOTES_BASE_URL}${endpoint}`;
-  const response = await fetch(url, {
-    ...init,
+  const clientId = process.env.PODCHASER_API_KEY;
+  const clientSecret = process.env.PODCHASER_API_SECRET;
+
+  if (!clientId || !clientSecret) {
+    console.warn("Podchaser credentials are not configured; serving fallback trends.");
+    throw new Error("Podchaser credentials are not configured");
+  }
+
+  const response = await fetch(PODCHASER_GRAPHQL_ENDPOINT, {
+    method: "POST",
     headers: {
-      "X-ListenAPI-Key": apiKey,
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      query: ACCESS_TOKEN_MUTATION,
+      variables: {
+        client_id: clientId,
+        client_secret: clientSecret
+      }
+    })
   });
 
-  if (!response.ok) {
-    throw json(
-      { message: `Listen Notes API error ${response.status}` },
-      { status: response.status }
+  const payload = (await response.json()) as {
+    data?: AccessTokenResult;
+    errors?: { message?: string }[];
+  };
+
+  if (!response.ok || payload.errors?.length) {
+    const message = payload.errors?.map((error) => error.message).join(", ");
+    console.warn(
+      "Podchaser token request failed",
+      message ?? response.status
+    );
+    throw new Error(
+      message ? `Podchaser token request failed: ${message}` : `Podchaser token request failed with ${response.status}`
     );
   }
 
-  return (await response.json()) as T;
+  const tokenData = payload.data?.requestAccessToken;
+  if (!tokenData?.access_token) {
+    console.warn("Podchaser token response missing access_token");
+    throw new Error("Podchaser token response missing access_token");
+  }
+
+  const expiresInSeconds = typeof tokenData.expires_in === "number" ? tokenData.expires_in : 3600;
+  const safetyWindowMs = 60 * 1000;
+
+  cachedToken = {
+    token: tokenData.access_token,
+    expiresAt: Date.now() + expiresInSeconds * 1000 - safetyWindowMs
+  };
+
+  return cachedToken.token;
 }
 
-async function getTopPodcastByGenre(
-  genreId: number
-): Promise<ListenNotesPodcast | null> {
-  try {
-    const data = await fetchJson<{ podcasts: ListenNotesPodcast[] }>(
-      `/best_podcasts?region=us&language=English&safe_mode=1&genre_id=${genreId}&page=1`
+async function executePodchaserQuery<T>(
+  query: string,
+  variables: Record<string, unknown>,
+  token: string
+): Promise<T> {
+  const response = await fetch(PODCHASER_GRAPHQL_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ query, variables })
+  });
+
+  const payload = (await response.json()) as {
+    data?: T;
+    errors?: { message?: string }[];
+  };
+
+  if (!response.ok || payload.errors?.length) {
+    const message = payload.errors?.map((error) => error.message).join(", ");
+    console.warn(
+      "Podchaser query failed",
+      message ?? response.status,
+      { queryExcerpt: query.slice(0, 80), variables }
     );
-
-    return data.podcasts?.[0] ?? null;
-  } catch (error) {
-    console.warn("Failed to fetch best podcasts", genreId, error);
-    return null;
-  }
-}
-
-async function getPodcastEpisodes(
-  podcastId: string,
-  limit: number
-): Promise<ListenNotesEpisode[]> {
-  try {
-    const podcast = await fetchJson<ListenNotesPodcastResponse>(
-      `/podcasts/${podcastId}?sort=recent_first`
+    throw new Error(
+      message ? `Podchaser query failed: ${message}` : `Podchaser query failed with ${response.status}`
     );
-
-    return podcast.episodes?.slice(0, limit) ?? [];
-  } catch (error) {
-    console.warn("Failed to fetch podcast episodes", podcastId, error);
-    return [];
   }
+
+  if (!payload.data) {
+    console.warn("Podchaser response missing data", { variables });
+    throw new Error("Podchaser response missing data");
+  }
+
+  return payload.data;
 }
 
 function mapEpisode(
-  episode: ListenNotesEpisode,
-  podcast: ListenNotesPodcast,
+  episode: PodchaserEpisode,
+  podcast: PodchaserPodcast,
   index: number
 ): PodcastEpisode {
-  const recencyBoost = Math.max(0, 1 - index * 0.15);
-  const listenScore = Number(podcast.listen_score ?? 30) / 100;
-  const freshness = 1 / Math.max(1, (Date.now() - episode.pub_date_ms) / 86400000);
-
-  const popularityScore = Number(
-    (listenScore * 70 + recencyBoost * 20 + freshness * 10).toFixed(2)
-  );
+  const airDate = episode.airDate ? new Date(episode.airDate) : null;
+  const airTime = airDate?.getTime() ?? Date.now();
+  const now = Date.now();
+  const daysSince = Math.max(0, (now - airTime) / (1000 * 60 * 60 * 24));
+  const recencyScore = Math.max(0, 60 - daysSince * 4);
+  const ratingBase = (podcast.ratingAverage ?? 4) * 8;
+  const countBonus = Math.min(20, (podcast.ratingCount ?? 0) / 500);
+  const indexPenalty = index * 6;
+  const rawScore = recencyScore + ratingBase + countBonus + 20 - indexPenalty;
+  const popularityScore = Math.max(10, Math.min(100, Math.round(rawScore)));
 
   return {
     id: episode.id,
     title: episode.title,
-    description: episode.description,
-    audioUrl: episode.audio ?? undefined,
+    description: episode.description ?? "",
+    audioUrl: episode.audioUrl ?? undefined,
     podcastTitle: podcast.title,
     podcastId: podcast.id,
-    imageUrl: episode.image ?? podcast.image,
-    thumbnailUrl: episode.thumbnail ?? podcast.thumbnail,
-    listennotesUrl: episode.listennotes_url ?? podcast.listennotes_url,
-    releaseDate: new Date(episode.pub_date_ms).toISOString(),
-    explicit: Boolean(episode.explicit_content),
+    imageUrl: episode.imageUrl ?? podcast.imageUrl ?? undefined,
+    thumbnailUrl: episode.imageUrl ?? podcast.imageUrl ?? undefined,
+    sourceUrl: episode.webUrl ?? episode.url ?? podcast.webUrl ?? podcast.url ?? undefined,
+    releaseDate: airDate ? airDate.toISOString() : new Date().toISOString(),
+    explicit: Boolean(episode.explicit),
     popularityScore
   };
 }
 
 async function buildCategoryTrend(
-  genreConfig: (typeof CATEGORY_CONFIG)[number]
+  category: (typeof CATEGORY_CONFIG)[number],
+  token: string
 ): Promise<PodcastCategoryTrend> {
-  const topPodcast = await getTopPodcastByGenre(genreConfig.genreId);
+  try {
+    const twoDaysAgo = new Date(Date.now() - 1000 * 60 * 60 * 24 * 2);
 
-  if (!topPodcast) {
-    return fallbackCategoryTrend(genreConfig.id);
+    const data = await executePodchaserQuery<DiscoverCategoryResult>(
+      DISCOVER_CATEGORY_QUERY,
+      {
+        searchTerm: category.searchTerm,
+        episodeCount: 3,
+        recentSince: twoDaysAgo.toISOString()
+      },
+      token
+    );
+
+    const podcasts = data.podcasts?.data ?? [];
+    const podcastWithEpisodes = podcasts.find((item) => item.episodes?.data?.length) ?? podcasts[0];
+
+    if (!podcastWithEpisodes?.episodes?.data?.length) {
+      return fallbackCategoryTrend(category.id);
+    }
+
+    const episodes = podcastWithEpisodes.episodes.data.slice(0, 3);
+
+    return {
+      id: category.id,
+      name: category.name,
+      summary: category.summary,
+      sampleEpisodes: episodes.map((episode, index) =>
+        mapEpisode(episode, podcastWithEpisodes, index)
+      ),
+      updatedAt: new Date().toISOString()
+    };
+  } catch (error) {
+    console.warn("Failed to fetch Podchaser data", category.id, error);
+    return fallbackCategoryTrend(category.id);
   }
-
-  const episodes = await getPodcastEpisodes(topPodcast.id, 3);
-
-  if (!episodes.length) {
-    return fallbackCategoryTrend(genreConfig.id);
-  }
-
-  return {
-    id: genreConfig.id,
-    name: genreConfig.name,
-    summary: genreConfig.summary,
-    sampleEpisodes: episodes.map((episode, index) =>
-      mapEpisode(episode, topPodcast, index)
-    ),
-    updatedAt: new Date().toISOString()
-  };
 }
 
 const FALLBACK_SNAPSHOT: PodcastTrendSnapshot = {
@@ -205,13 +335,13 @@ const FALLBACK_SNAPSHOT: PodcastTrendSnapshot = {
         id: `${config.id}-ep-1`,
         title: "サンプルエピソード 1",
         description:
-          "APIキー未設定のため、ダミーデータを表示しています。リッスンノーツのAPIキーを設定すると最新トレンドが取得されます。",
+          "Podchaser APIの認証情報が設定されていないため、サンプルデータを表示しています。環境変数にAPIキーを追加すると直近48時間のトレンドが取得されます。",
         audioUrl: undefined,
         podcastTitle: `デモポッドキャスト ${configIndex + 1}`,
         podcastId: `${config.id}-podcast`,
         imageUrl: undefined,
         thumbnailUrl: undefined,
-        listennotesUrl: undefined,
+        sourceUrl: undefined,
         releaseDate: new Date(Date.now() - configIndex * 86400000).toISOString(),
         explicit: false,
         popularityScore: 50 + configIndex * 5
@@ -243,7 +373,8 @@ export async function getPodcastTrends(
     return cachedSnapshot.snapshot;
   }
 
-  if (!process.env.LISTEN_NOTES_API_KEY) {
+  if (!process.env.PODCHASER_API_KEY || !process.env.PODCHASER_API_SECRET) {
+    console.warn("Podchaser credentials missing; reverting to fallback trend snapshot.");
     cachedSnapshot = {
       expiresAt: now + CACHE_TTL_MS,
       snapshot: {
@@ -254,21 +385,34 @@ export async function getPodcastTrends(
     return cachedSnapshot.snapshot;
   }
 
-  const categories = await Promise.all(
-    CATEGORY_CONFIG.map((config) => buildCategoryTrend(config))
-  );
+  try {
+    const token = await getPodchaserAccessToken();
+    const categories = await Promise.all(
+      CATEGORY_CONFIG.map((config) => buildCategoryTrend(config, token))
+    );
 
-  const snapshot: PodcastTrendSnapshot = {
-    generatedAt: new Date().toISOString(),
-    categories
-  };
+    const snapshot: PodcastTrendSnapshot = {
+      generatedAt: new Date().toISOString(),
+      categories
+    };
 
-  cachedSnapshot = {
-    expiresAt: now + CACHE_TTL_MS,
-    snapshot
-  };
+    cachedSnapshot = {
+      expiresAt: now + CACHE_TTL_MS,
+      snapshot
+    };
 
-  return snapshot;
+    return snapshot;
+  } catch (error) {
+    console.warn("Falling back to sample data due to Podchaser error", error);
+    cachedSnapshot = {
+      expiresAt: now + CACHE_TTL_MS,
+      snapshot: {
+        ...FALLBACK_SNAPSHOT,
+        generatedAt: new Date().toISOString()
+      }
+    };
+    return cachedSnapshot.snapshot;
+  }
 }
 
 export function getCategoryMetadata() {

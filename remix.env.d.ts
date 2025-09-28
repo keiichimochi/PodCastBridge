@@ -4,8 +4,9 @@
 
 declare namespace NodeJS {
   interface ProcessEnv {
-    LISTEN_NOTES_API_KEY?: string;
     GEMINI_API_KEY?: string;
+    PODCHASER_API_KEY?: string;
+    PODCHASER_API_SECRET?: string;
   }
 }
 

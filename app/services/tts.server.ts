@@ -2,8 +2,8 @@ import { GoogleGenAI, MediaResolution, Modality, type Session } from "@google/ge
 import { mkdir, writeFile } from "fs/promises";
 import path from "node:path";
 
-import { translateTextToJapanese } from "~/services/translation.server";
-import type { PodcastEpisode } from "~/types/podcast";
+import { translateTextToJapanese } from "./translation.server";
+import type { PodcastEpisode } from "../types/podcast";
 
 export interface TtsGenerationResult {
   script: string;

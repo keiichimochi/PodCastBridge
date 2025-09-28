@@ -7,7 +7,7 @@ export interface PodcastEpisode {
   podcastId: string;
   imageUrl?: string;
   thumbnailUrl?: string;
-  listennotesUrl?: string;
+  sourceUrl?: string;
   releaseDate: string;
   explicit: boolean;
   popularityScore: number;

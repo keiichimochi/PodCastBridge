@@ -8,11 +8,11 @@ import {
   useLoaderData
 } from "@remix-run/react";
 
-import { getPodcastTrends } from "~/services/trends.server";
+import { getPodcastTrends } from "../services/trends.server";
 import type {
   PodcastCategoryTrend,
   PodcastTrendSnapshot
-} from "~/types/podcast";
+} from "../types/podcast";
 
 export const meta: MetaFunction = () => [
   {
@@ -73,11 +73,11 @@ export default function IndexRoute() {
         <p className="hero-badge">US PODCAST INTEL</p>
         <h1 className="hero-title">アメリカのポッドキャストトレンドを日本語で素早く把握</h1>
         <p className="hero-description">
-          ListenNotesのチャートデータを解析し、分野ごとの注目エピソードを抽出します。選択したエピソードはGemini 2.5 Flash Native Audio（Zephyrボイス）で日本語ナレーション化し、即座に試聴できます。
+          Podchaserの番組データを解析し、分野ごとの注目エピソードを抽出します。選択したエピソードはGemini 2.5 Flash Native Audio（Zephyrボイス）で日本語ナレーション化し、即座に試聴できます。
         </p>
         <div className="hero-meta">
           <span>最終更新: {new Date(data.generatedAt).toLocaleString("ja-JP")}</span>
-          <Form method="post" action="/" replace>
+          <Form method="post" action="?index" replace>
             <button className="button-ghost" name="intent" value="refresh">
               トレンドを再取得
             </button>
@@ -175,9 +175,9 @@ function EpisodeCard({
       <p className="episode-description">{stripText(episode.description)}</p>
       <div className="episode-meta">
         <span>公開: {release}</span>
-        {episode.listennotesUrl ? (
-          <Link to={episode.listennotesUrl} target="_blank" rel="noreferrer" className="link-out">
-            ListenNotesで詳細を見る
+        {episode.sourceUrl ? (
+          <Link to={episode.sourceUrl} target="_blank" rel="noreferrer" className="link-out">
+            Podchaserで詳細を見る
           </Link>
         ) : null}
       </div>
