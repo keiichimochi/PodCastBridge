@@ -130,6 +130,19 @@ interface PodcastTrendSnapshot {
   generatedAt: string;
   categories: PodcastCategoryTrend[];
 }
+
+// GraphQL API型安全性強化
+interface EpisodeLengthRangeInput {
+  min?: number;
+  max?: number;
+}
+
+interface DiscoverCategoryVariables {
+  searchTerm: string;
+  episodeCount: number;
+  recentSince?: string;
+  maxLengthRange?: EpisodeLengthRangeInput[];
+}
 ```
 
 ## 環境変数設定
@@ -228,8 +241,19 @@ PODCHASER_API_SECRET=your_podchaser_api_secret
 - **キャッシュ最適化**: 再生時間設定ごとの独立キャッシュ
 - **状態管理**: フロントエンドでのTTS結果永続化
 - **UX向上**: URLパラメータでフィルター状態保持
+- **型安全性強化**: GraphQL変数とレスポンスの完全型定義
+
+### 🏗️ コード品質向上
+- **型定義拡張**: `EpisodeLengthRangeInput`、`DiscoverCategoryVariables`の追加
+- **ジェネリック強化**: `executePodchaserQuery<T, V>`で変数型も型安全に
+- **エラーハンドリング**: より堅牢な型チェックとバリデーション
 
 ---
 
-**最終更新**: 2025年09月28日 v2.0
+**最終更新**: 2025年09月28日 v2.1
 **開発状況**: 本格運用準備完了（APIキー設定のみ必要）
+
+### v2.1 マイナーアップデート
+- **型安全性**: GraphQL API統合の完全型定義化
+- **コード品質**: ジェネリック関数での変数型チェック強化
+- **保守性向上**: より明確な型インターフェースの分離

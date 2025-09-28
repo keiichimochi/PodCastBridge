@@ -1,4 +1,6 @@
 import type {
+  DiscoverCategoryVariables,
+  EpisodeLengthRangeInput,
   PodcastCategoryTrend,
   PodcastEpisode,
   PodcastTrendSnapshot
@@ -213,9 +215,9 @@ async function getPodchaserAccessToken(): Promise<string> {
   return cachedToken.token;
 }
 
-async function executePodchaserQuery<T>(
+async function executePodchaserQuery<T, V extends object>(
   query: string,
-  variables: Record<string, unknown>,
+  variables: V,
   token: string
 ): Promise<T> {
   const response = await fetch(PODCHASER_GRAPHQL_ENDPOINT, {
@@ -291,19 +293,20 @@ async function buildCategoryTrend(
 ): Promise<PodcastCategoryTrend> {
   try {
     const twoDaysAgo = new Date(Date.now() - 1000 * 60 * 60 * 24 * 2);
-    const maxLengthRange =
-      typeof maxDurationSeconds === "number"
-        ? [{ max: maxDurationSeconds }]
-        : null;
+    const variables: DiscoverCategoryVariables = {
+      searchTerm: category.searchTerm,
+      episodeCount: 3,
+      recentSince: twoDaysAgo.toISOString()
+    };
 
-    const data = await executePodchaserQuery<DiscoverCategoryResult>(
+    if (typeof maxDurationSeconds === "number") {
+      const range: EpisodeLengthRangeInput = { max: Math.max(0, Math.floor(maxDurationSeconds)) };
+      variables.maxLengthRange = [range];
+    }
+
+    const data = await executePodchaserQuery<DiscoverCategoryResult, DiscoverCategoryVariables>(
       DISCOVER_CATEGORY_QUERY,
-      {
-        searchTerm: category.searchTerm,
-        episodeCount: 3,
-        recentSince: twoDaysAgo.toISOString().slice(0, 19).replace("T", " "),
-        maxLengthRange
-      },
+      variables,
       token
     );
 

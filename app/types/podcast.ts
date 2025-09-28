@@ -25,3 +25,15 @@ export interface PodcastTrendSnapshot {
   generatedAt: string;
   categories: PodcastCategoryTrend[];
 }
+
+export interface EpisodeLengthRangeInput {
+  min?: number;
+  max?: number;
+}
+
+export interface DiscoverCategoryVariables {
+  searchTerm: string;
+  episodeCount: number;
+  recentSince?: string;
+  maxLengthRange?: EpisodeLengthRangeInput[];
+}
